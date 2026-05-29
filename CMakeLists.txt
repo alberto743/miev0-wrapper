@@ -18,11 +18,12 @@ add_subdirectory(miev)
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     if(WIN32)
         target_link_options(miescat PRIVATE
+            -no-pthread
             "-Wl,-Bstatic"
             -static-libgfortran
             -static-libgcc
             -static-libquadmath
-            "-lwinpthread"
+            "-l:libwinpthread.a"
             "-Wl,-Bdynamic"
         )
     else()
