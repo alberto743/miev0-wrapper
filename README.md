@@ -25,6 +25,11 @@ The execution is spawn as a subprocess that the resuting Mie coefficients and Le
 
 The package installs a command-line entry point `mieleg` and exposes the `compute_mie_scattering` function.
 
+The package is available on PyPI [miescat](https://pypi.org/project/miescat/).
+```shell
+pip install miescat
+```
+
 ## Requirements
 - Python 3.9+
 - CMake

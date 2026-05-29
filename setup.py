@@ -24,6 +24,12 @@ class CMakeBuild(_build_py):
         build_temp.mkdir(parents=True, exist_ok=True)
 
         cmake_args = ["cmake", str(here), "-DCMAKE_BUILD_TYPE=Release"]
+
+        # On Windows, use MinGW Makefiles generator
+        if os.name == "nt":
+            cmake_args.append('-G')
+            cmake_args.append('MinGW Makefiles')
+
         subprocess.check_call(cmake_args, cwd=build_temp)
 
         build_args = ["cmake", "--build", ".", "--config", "Release"]
