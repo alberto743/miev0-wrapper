@@ -6,11 +6,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
-from setuptools import setup
+from setuptools import setup, find_packages, Distribution
 from setuptools.command.build_py import build_py as _build_py
 
 
-here = Path(__file__).resolve().parent
+class BinaryDistribution(Distribution):
+    def has_ext_modules(self):
+        return True
 
 
 class CMakeBuild(_build_py):
@@ -23,12 +25,11 @@ class CMakeBuild(_build_py):
         build_temp = Path(build_command.build_temp)
         build_temp.mkdir(parents=True, exist_ok=True)
 
-        cmake_args = ["cmake", str(here)]
+        source_dir = Path(__file__).resolve().parent
+        cmake_args = ["cmake", str(source_dir)]
 
-        # On Windows, enforce MinGW Makefiles generator
         if os.name == "nt":
-            cmake_args.append('-G')
-            cmake_args.append('MinGW Makefiles')
+            cmake_args += ["-G", "MinGW Makefiles"]
 
         subprocess.check_call(cmake_args, cwd=build_temp)
 
@@ -44,4 +45,12 @@ class CMakeBuild(_build_py):
         target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(built_exe, target_dir / exe_name)
 
-setup(cmdclass={"build_py": CMakeBuild})
+
+setup(
+    package_dir={"": "src"},
+    packages=find_packages(where="src"),
+    include_package_data=True,
+    package_data={"miescat": ["miescat", "miescat.exe"]},
+    distclass=BinaryDistribution,
+    cmdclass={"build_py": CMakeBuild},
+)

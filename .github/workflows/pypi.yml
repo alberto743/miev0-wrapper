@@ -19,6 +19,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -28,7 +30,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.9'
+          python-version: ${{ matrix.python-version }}
 
       - name: Set up Fortran toolchain (Linux/macOS)
         if: runner.os != 'Windows'
@@ -59,10 +61,10 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake
 
-      - name: Install Python build tooling
+      - name: Install Python build and test tooling
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --user build wheel
+          python -m pip install --upgrade pip
+          python -m pip install --user build wheel pytest numpy
 
       - name: Run CTest (Linux/macOS)
         if: runner.os != 'Windows'
@@ -81,13 +83,33 @@ jobs:
           cmake --build build
           ctest --test-dir build --output-on-failure
 
-      - name: Build Python package
-        run: python3 -m build
+      - name: Build Python wheel package (non-Windows)
+        if: runner.os != 'Windows'
+        run: python -m build --wheel
+
+      - name: Build Python wheel package (Windows - MSYS2)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python -m build --wheel
+
+      - name: Install package wheel and run pytest (non-Windows)
+        if: runner.os != 'Windows'
+        run: |
+          python -m pip install dist/*.whl
+          python -m pytest test --maxfail=1 -q
+
+      - name: Install package wheel and run pytest (Windows - MSYS2)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python -m pip install dist/*.whl
+          python -m pytest test --maxfail=1 -q
 
       - name: Store distribution packages
         uses: actions/upload-artifact@v6
         with:
-          name: python-package-distributions-${{ matrix.os }}
+          name: python-package-distributions-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/
 
   publish-to-pypi:
@@ -103,23 +125,15 @@ jobs:
       id-token: write
 
     steps:
-      - name: Download Ubuntu dists
+      - name: Download all build artifacts
         uses: actions/download-artifact@v8
         with:
-          name: python-package-distributions-ubuntu-latest
+          pattern: python-package-distributions-*
           path: dist/
+          merge-multiple: true
 
-      - name: Download macOS dists
-        uses: actions/download-artifact@v8
-        with:
-          name: python-package-distributions-macos-latest
-          path: dist/
-
-      - name: Download Windows dists
-        uses: actions/download-artifact@v8
-        with:
-          name: python-package-distributions-windows-latest
-          path: dist/
+      - name: List files to verify
+        run: ls -R dist/
 
       - name: Publish distribution to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
