@@ -1,0 +1,87 @@
+# SPDX-FileCopyrightText: 2026 Alberto P
+#
+# SPDX-License-Identifier: MPL-2.0
+#
+# ci.yml – triggered on every push to the `develop` branch.
+#
+# Builds the package from source (without cibuildwheel) and runs pytest on
+# a representative matrix of operating systems and Python versions.
+# This is the fast inner-loop check: no wheel packaging, no upload.
+
+name: CI - build & test
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test / ${{ matrix.os }} / Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # ---- Compiler toolchain ------------------------------------------------
+
+      - name: Install Fortran + CMake (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake gfortran
+
+      - name: Install Fortran + CMake (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install gcc@14 cmake || true
+          echo "FC=gfortran-14" >> "$GITHUB_ENV"
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+
+      - name: Install Fortran + CMake (Windows - MSYS2 UCRT64)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-gcc-fortran
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-make
+          path-type: inherit
+
+      # ---- Build & test -------------------------------------------------------
+
+      - name: Install Python dependencies
+        run: pip install --upgrade pip setuptools wheel build pytest numpy
+
+      - name: Build and install wheel (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: |
+          python -m build --wheel --outdir dist/
+          pip install dist/*.whl
+
+      - name: Build and install wheel (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          python -m build --wheel --outdir dist/
+          pip install dist/*.whl
+
+      - name: Run pytest (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: pytest test -v
+
+      - name: Run pytest (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: pytest test -v

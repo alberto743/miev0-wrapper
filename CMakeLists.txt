@@ -29,6 +29,7 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
         target_link_options(miescat PRIVATE
             -static-libgfortran
             -static-libgcc
+            -static-libquadmath
         )
     else()
         target_link_options(miescat PRIVATE

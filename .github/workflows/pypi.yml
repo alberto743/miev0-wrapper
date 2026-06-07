@@ -1,122 +1,92 @@
 # SPDX-FileCopyrightText: 2026 Alberto P
 #
 # SPDX-License-Identifier: MPL-2.0
+#
+# pypi.yml – triggered on pushing a version tag (e.g. v0.2.3).
+#
+# Rebuilds all wheels fresh (does not reuse staging artifacts, so the exact
+# commit that is tagged is what ends up on PyPI), then publishes to PyPI via
+# OIDC trusted publishing – no API token or secret needed.
+#
+# One-time setup required on pypi.org:
+#   Account → Publishing → Add a new pending publisher
+#     Owner:    alberto743
+#     Repo:     miev0-wrapper
+#     Workflow: pypi.yml
+#     Environment: pypi
 
-name: Build/test package and publish to PyPI if is a tag
+name: Publish to PyPI
 
 on:
   push:
     tags:
-      - 'v*.*.*'
-    branches:
-      - develop
-  workflow_dispatch:
+      - "v*"
 
 jobs:
-  build:
-    name: Build, test, and package
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+  reuse-lint:
+    name: REUSE compliance check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: fsfe/reuse-action@v4
+
+  build_sdist:
+    name: Build source distribution
+    needs:
+      - reuse-lint
+    runs-on: ubuntu-slim
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
         with:
-          persist-credentials: false
+          python-version: "3.x"
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Build sdist
+        run: |
+          pip install --upgrade pip build
+          python -m build --sdist --outdir dist/
+
+      - name: Upload sdist artifact
+        uses: actions/upload-artifact@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          name: sdist
+          path: dist/*.tar.gz
 
-      - name: Set up Fortran toolchain (Linux/macOS)
-        if: runner.os != 'Windows'
-        uses: fortran-lang/setup-fortran@v1
-        with:
-          compiler: gcc
-
-      - name: Set up MinGW (Windows)
-        if: runner.os == 'Windows'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-gcc-libs
-            mingw-w64-x86_64-winpthreads
-            mingw-w64-x86_64-gcc-fortran
-            mingw-w64-x86_64-cmake
-          path-type: inherit
-
-      - name: Set up CMake (Linux/Windows)
-        if: runner.os != 'macOS'
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.31.6'
-
-      - name: Set up CMake (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake
-
-      - name: Install Python build and test tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --user build wheel pytest numpy
-
-      - name: Run CTest (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p build
-          cmake -S . -B build
-          cmake --build build
-          ctest --test-dir build --output-on-failure
-
-      - name: Run CTest (Windows)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          mkdir -p build
-          cmake -S . -B build -G "MinGW Makefiles"
-          cmake --build build
-          ctest --test-dir build --output-on-failure
-
-      - name: Build Python wheel package (non-Windows)
-        if: runner.os != 'Windows'
-        run: python -m build --wheel
-
-      - name: Build Python wheel package (Windows - MSYS2)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          python -m build --wheel
-
-      - name: Install package wheel and run pytest (non-Windows)
-        if: runner.os != 'Windows'
-        run: |
-          python -m pip install dist/*.whl
-          python -m pytest test --maxfail=1 -q
-
-      - name: Install package wheel and run pytest (Windows - MSYS2)
-        if: runner.os == 'Windows'
-        shell: msys2 {0}
-        run: |
-          python -m pip install dist/*.whl
-          python -m pytest test --maxfail=1 -q
-
-      - name: Store distribution packages
-        uses: actions/upload-artifact@v6
-        with:
-          name: python-package-distributions-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: dist/
-
-  publish-to-pypi:
-    name: Publish Python distribution to PyPI
-    if: startsWith(github.ref, 'refs/tags/')
+  build_wheels:
+    name: Build wheels / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     needs:
-      - build
+      - build_sdist
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-15-intel, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Build wheels with cibuildwheel
+        uses: pypa/cibuildwheel@v4.0.0
+
+      - name: Upload wheel artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs:
+      - build_wheels
+      - build_sdist
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -125,15 +95,18 @@ jobs:
       id-token: write
 
     steps:
-      - name: Download all build artifacts
+      - name: Download wheels (all platforms)
         uses: actions/download-artifact@v8
         with:
-          pattern: python-package-distributions-*
+          pattern: wheels-*
           path: dist/
           merge-multiple: true
 
-      - name: List files to verify
-        run: ls -R dist/
+      - name: Download sdist
+        uses: actions/download-artifact@v8
+        with:
+          name: sdist
+          path: dist/
 
-      - name: Publish distribution to PyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

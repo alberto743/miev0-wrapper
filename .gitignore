@@ -7,4 +7,5 @@ build/
 build-cmake/
 *.egg-info/
 dist/
+wheelhouse/
 venv/
