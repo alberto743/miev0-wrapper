@@ -56,6 +56,8 @@ jobs:
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-slim
+    needs:
+      - reuse-lint
 
     steps:
       - uses: actions/checkout@v6
