@@ -34,6 +34,10 @@ test = [
 [project.scripts]
 mieleg = "miescat.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/alberto743/miev0-wrapper"
+Issues = "https://github.com/alberto743/miev0-wrapper/issues"
+
 # ---------------------------------------------------------------------------
 # cibuildwheel – cross-platform wheel building
 # ---------------------------------------------------------------------------
