@@ -49,8 +49,6 @@ class CMakeBuild(_build_py):
 setup(
     package_dir={"": "src"},
     packages=find_packages(where="src"),
-    include_package_data=True,
-    package_data={"miescat": ["miescat", "miescat.exe"]},
     distclass=BinaryDistribution,
     cmdclass={"build_py": CMakeBuild},
 )
